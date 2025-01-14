@@ -1,7 +1,7 @@
 library(dplyr)
 library(Seurat)
 library(patchwork)
-
+library(ggplot2)
 #Load the PMBC dataset
 pbmc.data <- Read10X("data/filtered_gene_bc_matrices/hg19/") 
 
@@ -64,6 +64,64 @@ pbmc <- FindClusters(pbmc, resolution = 0.5) #uses this graph to identify cluste
 #look at cluster IDs of the first 5 cells
 head(Idents(pbmc),5)
 
+pmbc <- RunUMAP(pmbc, dims = 1:10)
 
+#Running non-linear dimensional reduction (UMAP/tSNE)
+pbmc <- RunUMAP(pbmc, dims = 1:10)
+DimPlot(pbmc, reduction = "umap")
 
+#Saving the object up to this point so that it can be easily loaded back in without reruning the above computational steps
+saveRDS(pbmc, file = "output/pbmc_tutorial.rds")
+
+##Finding differential expressed features (cluster biomarkers)
+
+# find all markers of cluster 2 compared to all other clusters
+cluster2.markers <- FindMarkers(pbmc, ident.1 = 2)
+head(cluster2.markers, n = 5)
+
+# find all markers distinguishing cluster 5 from clusters 0 and 3
+cluster5.markers <- FindMarkers(pbmc, ident.1 = 5, ident.2 = c(0,3))
+head(cluster5.markers)
+
+#Find markers for every cluster compared to all remaining cells, report only the positive ones
+pbmc.markers <- FindAllMarkers(pbmc, only.pos = TRUE)
+pbmc.markers %>% 
+  group_by(cluster) %>% 
+  filter(avg_log2FC > 1)
+
+#Using ROC test for DE
+cluster0.markers <- FindMarkers(pbmc, ident.1 = 0, logfc.threshold = 0.25, test.use = "roc", only.pos = TRUE)
+
+#Using a violin plot to plot the expression level of a gene in the different clusters
+VlnPlot(pbmc, features = c("MS4A1", "CD79A"))
+
+#plotting raw counts
+VlnPlot(pbmc, features = c("NKG7", "PF4"), slot = "counts", log = TRUE)
+
+#feature plot
+FeaturePlot(pbmc, features = c("MS4A1", "GNLY", "CD3E", "CD14", "FCER1A", "FCGR3A", "LYZ", "PPBP",
+                               "CD8A"))
+
+#for each cluster, take the top 10 markers for each cluster (all markers if less than 10 in a cluster)
+pbmc.markers %>% 
+  group_by(cluster) %>% 
+  filter(avg_log2FC > 1) %>% 
+  slice_head(n = 10) %>% 
+  ungroup() -> top10
+
+#Heat map of the top 10 marker genes for each cluster
+DoHeatmap(pbmc, features = top10$gene) + NoLegend()
+
+##Assigning cell type identity to clusters based on canonical markers
+new.cluster.ids <- c("Naive CD4 T", "CD14+ Mono", "Memory CD4 T", "B", "CD8 T", "FCGR3A+ Mono",
+                     "NK", "DC", "Platelet")
+names(new.cluster.ids) <- levels(pbmc)
+pbmc <- RenameIdents(pbmc, new.cluster.ids)
+DimPlot(pbmc, reduction = "umap", label = TRUE, pt.size = 0.5) + NoLegend()
+
+plot <- DimPlot(pbmc, reduction = "umap", label = TRUE, label.size = 4.5) + xlab("UMAP 1") + ylab("UMAP 2") + theme(axis.title = element_text(size = 18), legend.text = element_text(size = 18)) + guides(colour = guide_legend(override.aes = list(size=10)))
+
+ggsave(filename = "output/images/pbmc3k_umap.jpg", height = 7, width = 12, plot = plot, quality = 50)
+
+saveRDS(pbmc, file = "output/pbmc3k_final.rds")
 
